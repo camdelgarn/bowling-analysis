@@ -204,6 +204,14 @@ def spin_post_processing(
 ):
     df = pd.read_csv(input_csv_path)
 
+    if df.empty or df[["x_axis", "y_axis", "z_axis", "angle"]].dropna(how="all").empty:
+        df_fallback = fill_frames(input_video_path, input_original_csv_path)
+        for col in ["x_axis", "y_axis", "z_axis", "angle"]:
+            df_fallback[col] = np.nan
+        df_fallback.to_csv(output_csv_path, index=False)
+        print(f"Saved rotation data to {output_csv_path}")
+        return
+
     z_axis_avg = df["z_axis"].mean()
 
     # Flip sign of axes based on z_axis
@@ -283,10 +291,11 @@ def spin_post_processing(
         & df_original["radius"].notna()
     )
 
-    # Update A with values from B where the mask is True
-    df_processed.loc[mask, ["x", "y", "radius"]] = df_original.loc[
-        mask, ["x", "y", "radius"]
-    ]
+    # Ensure numeric dtype and assign column-by-column to avoid mixed-dtype casting issues.
+    for col in ["x", "y", "radius"]:
+        df_processed[col] = pd.to_numeric(df_processed[col], errors="coerce")
+        df_original[col] = pd.to_numeric(df_original[col], errors="coerce")
+        df_processed.loc[mask, col] = df_original.loc[mask, col].to_numpy()
 
     # Post-process angle
     df["angle"] = remove_angle_outliers(df["angle"], threshold=0.5)

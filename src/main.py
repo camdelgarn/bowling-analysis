@@ -1,4 +1,5 @@
 from pathlib import Path
+import argparse
 import cv2
 
 from lane_detection.Background_Motion import estimate_background_motion
@@ -29,27 +30,57 @@ from trajectory.Trajectory_on_video import trajectory_on_video
 from ball_detection.Post_processing_smoothing import process_coordinates_final
 from utility.Final_video_creation import create_final_video
 
-
 # ===================================================================================
 # This script runs the entire pipeline for the ball analysis
 # ===================================================================================
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Run the bowling analysis pipeline on a selected video."
+    )
+    parser.add_argument(
+        "--video-num",
+        default="4",
+        help="Recording suffix used for output paths (default: 4).",
+    )
+    parser.add_argument(
+        "--input-video",
+        default=None,
+        help="Optional absolute/relative path to an input video file.",
+    )
+    args = parser.parse_args()
+
     # ===============================================================================
     # PATHS
     # ===============================================================================
-    VIDEO_NUM = "4"
-    PROJECT_ROOT = Path().resolve()
+    VIDEO_NUM = str(args.video_num)
+    # Resolve project root from this file so execution works from any CWD.
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-    # Lane detection
-    INPUT_VIDEO_PATH = str(
+    input_video_data = (
+        PROJECT_ROOT / "data" / f"recording_{VIDEO_NUM}" / f"Recording_{VIDEO_NUM}.mp4"
+    )
+    input_video_output = (
         PROJECT_ROOT
         / "output_data"
         / f"recording_{VIDEO_NUM}"
         / f"Recording_{VIDEO_NUM}.mp4"
     )
+    if args.input_video:
+        INPUT_VIDEO_FILE = Path(args.input_video).expanduser().resolve()
+        if not INPUT_VIDEO_FILE.exists():
+            raise FileNotFoundError(f"Input video not found: {INPUT_VIDEO_FILE}")
+    else:
+        INPUT_VIDEO_FILE = (
+            input_video_data if input_video_data.exists() else input_video_output
+        )
+
+    # Lane detection
+    INPUT_VIDEO_PATH = str(INPUT_VIDEO_FILE)
     TEMPLATE_PIN_PATH = str(
-        PROJECT_ROOT / "output_data" / "templates" / "Template_pin.png"
+        PROJECT_ROOT
+        / "output_data"
+        / "templates" / "Template_pin.png"
     )
     VIDEO_LANE_DETECTION_PATH = str(
         PROJECT_ROOT
@@ -109,6 +140,13 @@ if __name__ == "__main__":
         / "other_video"
         / f"Tracked_output_{VIDEO_NUM}.mp4"
     )
+    VIDEO_BALL_PROCESSED_PATH = str(
+        PROJECT_ROOT
+        / "output_data"
+        / f"recording_{VIDEO_NUM}"
+        / "other_video"
+        / f"Ball_detected_processed_{VIDEO_NUM}.mp4"
+    )
     BALL_LOWER_COORD_PATH = str(
         PROJECT_ROOT
         / "output_data"
@@ -123,12 +161,12 @@ if __name__ == "__main__":
         / "other_data"
         / f"Adjusted_positions_{VIDEO_NUM}.csv"
     )
-    VIDEO_BALL_PROCESSED_PATH = str(
+    BALL_COORD_TRANS_PATH = str(
         PROJECT_ROOT
         / "output_data"
         / f"recording_{VIDEO_NUM}"
-        / "other_video"
-        / f"Ball_detected_processed_{VIDEO_NUM}.mp4"
+        / "other_data"
+        / f"Transformed_positions_raw_{VIDEO_NUM}.csv"
     )
 
     # Reconstruction
@@ -191,6 +229,10 @@ if __name__ == "__main__":
         / f"Final_{VIDEO_NUM}.mp4"
     )
 
+    output_recording_dir = PROJECT_ROOT / "output_data" / f"recording_{VIDEO_NUM}"
+    (output_recording_dir / "other_video").mkdir(parents=True, exist_ok=True)
+    (output_recording_dir / "other_data").mkdir(parents=True, exist_ok=True)
+
     # ===============================================================================
     # LANE DETECTION
     # ===============================================================================
@@ -249,7 +291,7 @@ if __name__ == "__main__":
     # ===============================================================================
     # TRAJECTORY
     # ===============================================================================
-    # trajectory_on_video(INPUT_VIDEO_PATH, BALL_COORD_TRANS_CLEAR_PATH, LANE_POINTS_PATH, VIDEO_TRAJ_ON_RECORDING, BALL_LOWER_COORD_PATH)
+    # trajectory_on_video(INPUT_VIDEO_PATH, BALL_COORD_TRANS_CLEAR_PATH, LANE_POINTS_PATH, VIDEO_TRAJ_ON_LANE, BALL_LOWER_COORD_PATH)
     trajectory_on_reconstruction(
         INPUT_VIDEO_PATH, BALL_COORD_TRANS_CLEAR_PATH, VIDEO_TRAJ_ON_LANE
     )

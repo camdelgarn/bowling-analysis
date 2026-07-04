@@ -44,9 +44,15 @@ def process_radius(df, median_window=25, quantile_baseline=0.05, ransac_threshol
     valid = df["radius"] > (c_est + eps)
 
     if valid.sum() < 10:
-        raise ValueError(
-            "Too few valid points for robust fitting. Consider adjusting parameters."
+        # Fallback for sparse detections: smooth/interpolate available radii.
+        radius_fallback = df["radius"].astype(float).interpolate(limit_direction="both")
+        radius_fallback = (
+            radius_fallback.rolling(window=median_window, center=True, min_periods=1)
+            .median()
+            .fillna(radius_fallback.median())
         )
+        df["radius"] = np.round(radius_fallback).astype("Int64")
+        return df
 
     x = df.loc[valid, "frame"].values.reshape(-1, 1)
     y = np.log(df.loc[valid, "radius"].values - c_est)

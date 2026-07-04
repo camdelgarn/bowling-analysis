@@ -26,11 +26,19 @@ def process_radius(df, median_window=25, quantile_baseline=0.05, ransac_threshol
     pd.DataFrame
         The processed DataFrame with fitted radius values.
     """
+    df = df.copy()
+    df["frame"] = pd.to_numeric(df["frame"], errors="coerce")
+    df = df.dropna(subset=["frame"])
+    if df.empty:
+        return pd.DataFrame(columns=["frame", "x", "y", "radius"])
 
+    df["frame"] = df["frame"].astype(int)
     all_frames = pd.DataFrame(
         {"frame": np.arange(int(df["frame"].min()), int(df["frame"].max()) + 1)}
     )
     df = pd.merge(all_frames, df, on="frame", how="left")
+
+    df["radius"] = pd.to_numeric(df["radius"], errors="coerce")
 
     df["median"] = (
         df["radius"].rolling(window=median_window, center=True, min_periods=1).median()
@@ -42,9 +50,17 @@ def process_radius(df, median_window=25, quantile_baseline=0.05, ransac_threshol
     valid = df["radius"] > (c_est + eps)
 
     if valid.sum() < 10:
-        raise ValueError(
-            "Too few valid points for robust fitting. Consider adjusting parameters."
+        # Fallback for sparse detections: keep a stable radius trend without aborting.
+        df["radius"] = (
+            df["radius"]
+            .interpolate(method="linear", limit_direction="both")
+            .bfill()
+            .ffill()
         )
+        if df["radius"].isna().all():
+            df["radius"] = 0
+        df["radius"] = np.round(df["radius"]).astype(int)
+        return df
 
     x = df.loc[valid, "frame"].values.reshape(-1, 1)
     y = np.log(df.loc[valid, "radius"].values - c_est)
@@ -131,9 +147,11 @@ def process_coordinates_final(
     )
 
     for col in ["x", "y", "radius"]:
-        processed_df[col] = (
-            pd.to_numeric(processed_df[col], errors="coerce").dropna().astype(int)
-        )
+        processed_df[col] = pd.to_numeric(processed_df[col], errors="coerce")
+
+    processed_df = processed_df.dropna(subset=["frame", "x", "y", "radius"]).copy()
+    for col in ["frame", "x", "y", "radius"]:
+        processed_df[col] = np.round(processed_df[col]).astype(int)
 
     df_output = processed_df[["frame", "x", "y", "radius"]]
     df_output.to_csv(output_csv, index=False)

@@ -12,19 +12,34 @@ def det(a, b):
 
 
 def get_intersection(line_1, line_2):
-    xdiff = (line_1[0] - line_1[2], line_2[0] - line_2[2])
-    ydiff = (line_1[1] - line_1[3], line_2[1] - line_2[3])
+    line_1_arr = np.asarray(line_1).reshape(-1)
+    line_2_arr = np.asarray(line_2).reshape(-1)
+    if (
+        line_1_arr.size != 4
+        or line_2_arr.size != 4
+        or not np.isfinite(line_1_arr).all()
+        or not np.isfinite(line_2_arr).all()
+    ):
+        return np.nan, np.nan
+
+    xdiff = (line_1_arr[0] - line_1_arr[2], line_2_arr[0] - line_2_arr[2])
+    ydiff = (line_1_arr[1] - line_1_arr[3], line_2_arr[1] - line_2_arr[3])
 
     div = det(xdiff, ydiff)
-    if div == 0:
-        return None
+    if not np.isfinite(div) or abs(div) < 1e-12:
+        return np.nan, np.nan
 
     d = (
         det((line_1[0], line_1[1]), (line_1[2], line_1[3])),
         det((line_2[0], line_2[1]), (line_2[2], line_2[3])),
     )
-    x = int(det(d, xdiff) / div)
-    y = int(det(d, ydiff) / div)
+    x_val = det(d, xdiff) / div
+    y_val = det(d, ydiff) / div
+    if not np.isfinite(x_val) or not np.isfinite(y_val):
+        return np.nan, np.nan
+
+    x = int(round(x_val))
+    y = int(round(y_val))
     return x, y
 
 
@@ -49,7 +64,8 @@ def cut_frame_triangle(frame, bottom_line, left_line, rigth_line):
     int2 = get_intersection(bottom_line, rigth_line)
     int3 = get_intersection(left_line, rigth_line)
 
-    if None in [int1, int2, int3]:
+    points = [int1, int2, int3]
+    if any(not np.isfinite(np.asarray(p, dtype=float)).all() for p in points):
         raise ValueError("Could not find all three triangle points")
 
     triangle = np.array([int1, int2, int3])
@@ -176,12 +192,20 @@ def template_matching(
 
 
 def get_extended_line(line, img_width=2000, img_height=2000):
+    line_arr = np.asarray(line).reshape(-1)
+    if line_arr.size != 4 or not np.isfinite(line_arr).all():
+        return [0, 0, 0, 0]
+
+    x1, y1, x2, y2 = line_arr
     x1, y1, x2, y2 = line
     if x1 == x2:
-        return (x1, 0), (x2, img_height)
+        return [int(x1), 0, int(x2), int(img_height)]
 
     m = (y2 - y1) / (x2 - x1)
     b = y1 - m * x1
+    if not np.isfinite(m) or not np.isfinite(b):
+        return [int(x1), int(y1), int(x2), int(y2)]
+
     points = []
 
     y_left = int(m * 0 + b)
@@ -198,9 +222,12 @@ def get_extended_line(line, img_width=2000, img_height=2000):
             points.append((x_top, 0))
         if 0 <= x_bottom <= img_width:
             points.append((x_bottom, img_height))
-    extended_line = [points[0][0], points[0][1], points[1][0], points[1][1]]
 
-    return extended_line if len(points) >= 2 else [x1, y1, x2, y2]
+    if len(points) < 2:
+        return [int(x1), int(y1), int(x2), int(y2)]
+
+    extended_line = [points[0][0], points[0][1], points[1][0], points[1][1]]
+    return extended_line
 
 
 """ correct the inclination of the founded upper line"""
@@ -224,18 +251,28 @@ def correct_inclination(bottom_right, bottom_line, frame):
 
 
 def compute_upper_line(frame, template, bottom_line, left_line, right_line):
-    cutted_frame, triangle = cut_frame_triangle(
-        frame, bottom_line, left_line, right_line
-    )
-    br_frame = extract_br_frame(cutted_frame)
-    upper_horizontal_estimated = get_upper_horizontal_line_first_estimate(
-        br_frame, triangle
-    )
-    bottom_rigth_point_pin = template_matching(
-        cutted_frame, template, upper_horizontal_estimated, left_line, right_line
-    )
-    upper_line = correct_inclination(bottom_rigth_point_pin, bottom_line, frame)
-    return upper_line
+    for lane_line in (bottom_line, left_line, right_line):
+        lane_line_arr = np.asarray(lane_line).reshape(-1)
+        if lane_line_arr.size != 4 or not np.isfinite(lane_line_arr).all():
+            return [0, 0, 0, 0]
+
+    try:
+        cutted_frame, triangle = cut_frame_triangle(
+            frame, bottom_line, left_line, right_line
+        )
+        br_frame = extract_br_frame(cutted_frame)
+        upper_horizontal_estimated = get_upper_horizontal_line_first_estimate(
+            br_frame, triangle
+        )
+        if upper_horizontal_estimated is None:
+            return [0, 0, 0, 0]
+        bottom_rigth_point_pin = template_matching(
+            cutted_frame, template, upper_horizontal_estimated, left_line, right_line
+        )
+        upper_line = correct_inclination(bottom_rigth_point_pin, bottom_line, frame)
+        return upper_line
+    except Exception:
+        return [0, 0, 0, 0]
 
 
 """ Compute the upper lines from the bottom and lateral lines"""
@@ -261,13 +298,16 @@ def get_upper_lines(cap, template_path, bottom_lines, left_lines, right_lines):
             break
 
         # Compute the three lines in the frame
-        upper_line = compute_upper_line(
-            frame=video_frame,
-            template=template,
-            bottom_line=bottom_lines[frame_index],
-            left_line=left_lines[frame_index],
-            right_line=right_lines[frame_index],
-        )
+        try:
+            upper_line = compute_upper_line(
+                frame=video_frame,
+                template=template,
+                bottom_line=bottom_lines[frame_index],
+                left_line=left_lines[frame_index],
+                right_line=right_lines[frame_index],
+            )
+        except Exception:
+            upper_line = [0, 0, 0, 0]
 
         # Append the lines to the lists
         upper_lines.append(upper_line)

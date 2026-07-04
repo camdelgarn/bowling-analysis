@@ -126,6 +126,44 @@ def create_sphere_video(df, output_path, fps=30):
     # compute the average angle to assign it whene angle is NaN
     mean_angle = df["angle"].mean()
 
+    if first_valid_index is None or last_valid_index is None:
+        # No valid spin axis in the clip: render a neutral sphere with N/D label.
+        with writer.saving(fig, output_path, dpi=dpi):
+            for _ in range(len(df)):
+                ax.cla()
+                ax.plot_surface(
+                    x0,
+                    y0,
+                    z0,
+                    facecolors=colors,
+                    edgecolor="gray",
+                    alpha=1,
+                    linewidth=0.2,
+                )
+                ax.set_xlim([-2, 2])
+                ax.set_ylim([-2, 2])
+                ax.set_zlim([-2, 2])
+                ax.view_init(elev=-90, azim=-90)
+                ax.axis("off")
+                ax.text2D(
+                    0.0,
+                    0.09,
+                    "N/D rad/s",
+                    ha="center",
+                    va="center",
+                    fontsize=30,
+                    color="black",
+                    bbox=dict(
+                        facecolor="none",
+                        edgecolor="black",
+                        boxstyle="round,pad=0.3",
+                        linewidth=2,
+                    ),
+                )
+                writer.grab_frame()
+        print(f"Video saved to {output_path}")
+        return
+
     # Initialize variables
     R_total = np.eye(3)
     dtheta = 0

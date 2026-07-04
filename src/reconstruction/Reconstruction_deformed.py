@@ -1,5 +1,6 @@
 import pandas as pd
 import cv2
+import numpy as np
 from scipy.signal import savgol_filter
 
 # ==============================================================================
@@ -14,10 +15,20 @@ def transform_coordinates(
     Transforms the coordinates from the input CSV file and saves them to the output CSV file.
     """
     df = pd.read_csv(input_csv)
+    df["frame"] = pd.to_numeric(df["frame"], errors="coerce")
+    df["x"] = pd.to_numeric(df["x"], errors="coerce")
+    df["y"] = pd.to_numeric(df["y"], errors="coerce")
     transformed_points = []
 
     for _, row in df.iterrows():
+        if pd.isna(row["frame"]):
+            continue
+
         x_old, y_old = row["x"], row["y"]
+        if pd.isna(x_old) or pd.isna(y_old):
+            transformed_points.append([int(row["frame"]), np.nan, np.nan])
+            continue
+
         x_new = int(x_old * scale_x)
         y_new = int(y_old * scale_y) + 65
         transformed_points.append([int(row["frame"]), x_new, y_new])
@@ -33,10 +44,33 @@ def Savitzky_Golay_filter(df, window_length=60, polyorder=2):
     Apply Savitzky-Golay filter to smooth the x and y coordinates in the DataFrame.
     """
     df = df.copy()
-    df["x"] = savgol_filter(df["x"], window_length=window_length, polyorder=polyorder)
-    df["y"] = savgol_filter(df["y"], window_length=window_length, polyorder=polyorder)
-    df["x"] = df["x"].round().astype(int)
-    df["y"] = df["y"].round().astype(int)
+
+    if df.empty or len(df) < 3:
+        return df
+
+    wl = min(window_length, len(df) if len(df) % 2 == 1 else len(df) - 1)
+    if wl <= polyorder:
+        wl = polyorder + 1
+        if wl % 2 == 0:
+            wl += 1
+    if wl > len(df):
+        return df
+
+    for axis in ["x", "y"]:
+        df[axis] = pd.to_numeric(df[axis], errors="coerce")
+        if df[axis].notna().sum() <= polyorder:
+            continue
+
+        filled_axis = df[axis].interpolate(method="linear").bfill().ffill()
+        if filled_axis.isna().any():
+            continue
+
+        df[axis] = savgol_filter(
+            filled_axis.to_numpy(), window_length=wl, polyorder=polyorder
+        )
+
+    for axis in ["x", "y"]:
+        df[axis] = pd.to_numeric(df[axis], errors="coerce").round()
 
     return df
 

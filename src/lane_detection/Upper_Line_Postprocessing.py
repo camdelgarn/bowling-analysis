@@ -358,7 +358,11 @@ def draw_line_on_frame(frame, line):
 
     # Extract the first line's rho and theta
     if line is not None:
-        x1, y1, x2, y2 = line
+        line_arr = np.asarray(line).reshape(-1)
+        if line_arr.size != 4 or not np.isfinite(line_arr).all():
+            return modified_frame
+
+        x1, y1, x2, y2 = line_arr
         # Extend the line to the image boundaries
         # [x1_ext, y1_ext, x2_ext, y2_ext] = get_extended_line(line, frame.shape[1], frame.shape[0])
 

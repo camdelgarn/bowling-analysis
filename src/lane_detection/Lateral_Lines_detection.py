@@ -47,7 +47,7 @@ def compute_intersections_between_lines(lines, reference_line):
     intersection_points_x = []
     # compute the intersection of each line with the horizontal line
     for line in lines:
-        hom_line = cartesian_to_homogeneous(line[0])
+        hom_line = cartesian_to_homogeneous(line)
         hom_ref_line = cartesian_to_homogeneous(reference_line)
 
         int_point = np.cross(hom_line, hom_ref_line)
@@ -108,32 +108,40 @@ def filter_lines(
     # Calculate the homogeneous coordinates of the horizontal line
     x1, y1, x2, y2 = horizontal_line
     horizontal_line_homogeneous = np.cross([x1, y1, 1], [x2, y2, 1])
-    horizontal_line_homogeneous = (
-        horizontal_line_homogeneous / horizontal_line_homogeneous[0]
-    )
+
+    # Degenerate reference line: keep processing safe and return null lines.
+    if not np.isfinite(horizontal_line_homogeneous).all() or np.allclose(
+        horizontal_line_homogeneous[:2], 0
+    ):
+        null_line = np.array([0, 0, 0, 0], dtype=int)
+        return null_line, null_line
+
+    a_ref, b_ref, c_ref = horizontal_line_homogeneous
 
     # Filter out lines that are 'quite horizontal' with a tolerance of 20 degrees
     filtered_lines = []
     if lines_p is not None:
         for line in lines_p:
-            x1, y1, x2, y2 = line[0]
+            # OpenCV may return each line as shape (1, 4) or directly as (4,).
+            line_arr = np.asarray(line).reshape(-1)
+            if line_arr.size != 4:
+                continue
+            x1, y1, x2, y2 = line_arr.astype(int)
             angle = calculate_angle(x1, y1, x2, y2)
             if abs(angle) > tolerance_angle:
                 y_max = max(y1, y2)
                 y_min = min(y1, y2)
                 x_max = x1 if y_max == y1 else x2
                 # Filter the lines that have both endpoints over the horizontal line
-                if (
-                    x_max
-                    + y_max * horizontal_line_homogeneous[1]
-                    + horizontal_line_homogeneous[2]
-                    > 0
-                    and y_min > frame_height / 4
-                ):  # se a*x + b*y + c > 0 allora il punto è sopra la linea
-                    filtered_lines.append(line)
+                line_eval = a_ref * x_max + b_ref * y_max + c_ref
+                if np.isfinite(line_eval) and y_min > frame_height / 4:
+                    # Use the side of the frame center as a stable orientation reference.
+                    ref_eval = a_ref * image_center + b_ref * (frame_height - 1) + c_ref
+                    if line_eval * ref_eval <= 0:
+                        filtered_lines.append(np.array([x1, y1, x2, y2], dtype=int))
 
     # define the null line
-    null_line = np.array([[0, 0, 0, 0]])
+    null_line = np.array([0, 0, 0, 0], dtype=int)
 
     if len(filtered_lines) == 0:
         return null_line, null_line
@@ -196,8 +204,8 @@ def get_lateral_lines(cap, bottom_lines):
         )
 
         # Append the lines to the lists
-        left_lines.append(left_line[0])
-        right_lines.append(right_line[0])
+        left_lines.append(left_line)
+        right_lines.append(right_line)
 
         # Increment the frame index
         frame_index += 1

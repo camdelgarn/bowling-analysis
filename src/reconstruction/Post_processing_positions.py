@@ -116,11 +116,18 @@ def median_filter(df, kernel_size=3):
         The DataFrame with median filtering applied.
     """
     df = df.copy()
-    df["x"] = medfilt(df["x"], kernel_size=kernel_size)
-    df["y"] = medfilt(df["y"], kernel_size=kernel_size)
+    if df.empty:
+        return df
 
-    df = df[df["x"] > 0]
-    df = df[df["y"] > 0]
+    df["x"] = pd.to_numeric(df["x"], errors="coerce")
+    df["y"] = pd.to_numeric(df["y"], errors="coerce")
+
+    if len(df) >= kernel_size:
+        df["x"] = medfilt(df["x"], kernel_size=kernel_size)
+        df["y"] = medfilt(df["y"], kernel_size=kernel_size)
+
+    # Keep frame alignment; invalid points are marked as missing and later interpolated.
+    df.loc[(df["x"] <= 0) | (df["y"] <= 0), ["x", "y"]] = np.nan
     return df
 
 
@@ -132,8 +139,30 @@ def Savitzky_Golay_filter(df, window_length=45, polyorder=3):
         The DataFrame with Savitzky-Golay filtering applied.
     """
     df = df.copy()
-    df["x"] = savgol_filter(df["x"], window_length=window_length, polyorder=polyorder)
-    df["y"] = savgol_filter(df["y"], window_length=window_length, polyorder=polyorder)
+    if df.empty or len(df) < 3:
+        return df
+
+    # Ensure a valid odd window length not larger than the data length.
+    wl = min(window_length, len(df) if len(df) % 2 == 1 else len(df) - 1)
+    if wl <= polyorder:
+        wl = polyorder + 1
+        if wl % 2 == 0:
+            wl += 1
+    if wl > len(df):
+        return df
+
+    for axis in ["x", "y"]:
+        df[axis] = pd.to_numeric(df[axis], errors="coerce")
+        if df[axis].notna().sum() <= polyorder:
+            continue
+
+        filled_axis = df[axis].interpolate(method="linear").bfill().ffill()
+        if filled_axis.isna().any():
+            continue
+
+        df[axis] = savgol_filter(
+            filled_axis.to_numpy(), window_length=wl, polyorder=polyorder
+        )
     # df['x'] = df['x'].round().astype(int)
     # df['y'] = df['y'].round().astype(int)
 
@@ -147,9 +176,24 @@ def interpolate_missing_coordinates(df):
     pd.DataFrame
         The DataFrame with missing coordinates interpolated.
     """
-    df = df.copy().set_index("frame")
+    if df.empty or "frame" not in df.columns:
+        return pd.DataFrame(columns=["frame", "x", "y"])
 
-    full_index = range(df.index.min(), df.index.max() + 1)
+    df = df.copy()
+    df["frame"] = pd.to_numeric(df["frame"], errors="coerce")
+    df = df.dropna(subset=["frame"])
+    if df.empty:
+        return pd.DataFrame(columns=["frame", "x", "y"])
+
+    df["frame"] = df["frame"].astype(int)
+    df = df.set_index("frame")
+
+    min_frame = int(df.index.min())
+    max_frame = int(df.index.max())
+    if min_frame > max_frame:
+        return pd.DataFrame(columns=["frame", "x", "y"])
+
+    full_index = range(min_frame, max_frame + 1)
     df_full = df.reindex(full_index)
 
     df_full["x"] = df_full["x"].interpolate(method="linear")
@@ -157,6 +201,10 @@ def interpolate_missing_coordinates(df):
 
     df_full["x"] = df_full["x"].bfill().ffill()
     df_full["y"] = df_full["y"].bfill().ffill()
+
+    # If the series is still empty (all NaN), return unsmoothed to keep pipeline alive.
+    if df_full[["x", "y"]].isna().all().all():
+        return df_full.reset_index().rename(columns={"index": "frame"})
 
     df_full = df_full.reset_index().rename(columns={"index": "frame"})
     df_full = Savitzky_Golay_filter(df_full)

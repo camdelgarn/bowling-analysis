@@ -209,7 +209,10 @@ def process_spin(input_video_path, input_csv_path, output_csv_path):
             }
         )
 
-    output_df = pd.DataFrame(output_data)
+    output_df = pd.DataFrame(
+        output_data,
+        columns=["frame", "x", "y", "radius", "x_axis", "y_axis", "z_axis", "angle"],
+    )
     output_df.to_csv(output_csv_path, index=False)
 
     # I save the final csv file with the all missing points

@@ -79,10 +79,14 @@ def get_horizontal(lines_p, tolerance=5):
     horizontal = []
     if lines_p is not None:
         for line in lines_p:
-            x1, y1, x2, y2 = line[0]
+            # OpenCV may return each line as shape (1, 4) or directly as (4,).
+            line_arr = np.asarray(line).reshape(-1)
+            if line_arr.size != 4:
+                continue
+            x1, y1, x2, y2 = line_arr.astype(int)
             angle = calculate_angle(x1, y1, x2, y2)
             if abs(angle) <= tolerance:
-                horizontal.append(line)
+                horizontal.append(np.array([x1, y1, x2, y2], dtype=int))
     return horizontal
 
 
@@ -110,7 +114,7 @@ def bottom_detection(frame):
         return None
 
     # get the first line in the list (best one)
-    horizontal_line = horizontal_lines[0][0]
+    horizontal_line = horizontal_lines[0].copy()
     # adjust y coordinates to come back to the original image points
     horizontal_line[1] = horizontal_line[1] + limit_y
     horizontal_line[3] = horizontal_line[3] + limit_y
